@@ -44,7 +44,7 @@ def load_config() -> dict:
 def process_chunk(idx, chunk_name, expected_file, cmd, output_dir):
     start_time = time.time()
     try:
-        proc = subprocess.run(cmd, cwd=str(output_dir))
+        proc = subprocess.run(cmd, cwd=str(output_dir), capture_output=True)
         elapsed = time.time() - start_time
         if proc.returncode == 0 and expected_file.exists():
             return (idx, chunk_name, "success", elapsed, expected_file)
@@ -263,17 +263,25 @@ def main():
             futures_map[future] = (idx, chunk_name)
             logger.info("  Submitted [%d/%d] %s", idx, chunk_count, chunk_name)
 
+        completed = 0
         for future in as_completed(futures_map):
             idx, chunk_name = futures_map[future]
             try:
                 result = future.result()
                 results.append(result)
+                completed += 1
+                pct = completed * 100 // chunk_count
                 status, elapsed = result[2], result[3]
                 if status == "success":
+                    print(f"[PROGRESS] {completed}/{chunk_count} ({pct}%) {chunk_name} OK ({elapsed:.1f}s)")
                     logger.info("  [OK] [%d/%d] %s completed in %.1fs", idx, chunk_count, chunk_name, elapsed)
                 else:
+                    print(f"[PROGRESS] {completed}/{chunk_count} ({pct}%) {chunk_name} FAIL ({elapsed:.1f}s)")
                     logger.error("  [FAIL] [%d/%d] %s (%.1fs)", idx, chunk_count, chunk_name, elapsed)
             except Exception as e:
+                completed += 1
+                pct = completed * 100 // chunk_count
+                print(f"[PROGRESS] {completed}/{chunk_count} ({pct}%) {chunk_name} ERROR")
                 logger.error("  [ERROR] [%d/%d] %s: %s", idx, chunk_count, chunk_name, e)
                 results.append((idx, chunk_name, "error", 0, output_dir / f"{chunk_name}_chinese.txt"))
 

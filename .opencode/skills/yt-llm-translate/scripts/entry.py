@@ -12,6 +12,7 @@ import sys
 import json
 import time
 import subprocess
+import threading
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -28,6 +29,59 @@ def load_config():
     except (json.JSONDecodeError, OSError) as e:
         print(f"[WARN] Failed to parse config.json: {e}", file=sys.stderr)
         return {}
+
+
+def _stream_subprocess(cmd, cwd=None, label="", timeout=None):
+    """Run a command with real-time stdout/stderr streaming. Returns exit code."""
+    if label:
+        print(f"[RUN] {label}")
+
+    workdir = str(cwd) if cwd else None
+    t_start = time.time()
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=workdir,
+        bufsize=1,
+    )
+
+    def _reader(stream, dest):
+        try:
+            for line in iter(stream.readline, ""):
+                dest.write(line)
+                dest.flush()
+        except (ValueError, OSError):
+            pass
+        finally:
+            stream.close()
+
+    t_out = threading.Thread(target=_reader, args=(proc.stdout, sys.stdout), daemon=True)
+    t_err = threading.Thread(target=_reader, args=(proc.stderr, sys.stderr), daemon=True)
+    t_out.start()
+    t_err.start()
+
+    try:
+        returncode = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        print(f"\n[TIMEOUT] Command timed out after {timeout}s")
+        returncode = -1
+
+    t_out.join(timeout=3)
+    t_err.join(timeout=3)
+
+    elapsed = time.time() - t_start
+    if label:
+        status = "OK" if returncode == 0 else f"FAIL ({returncode})"
+        print(f"[{status}] {label} ({elapsed:.1f}s)")
+
+    return returncode
 
 
 def needs_punctuation(srt_path: Path) -> bool:
@@ -74,27 +128,8 @@ def invoke_srt_punctuator(srt_path: Path, cwd: Path) -> bool:
         "--timeout", "600",
     ]
 
-    print(f"[OPENCODE] Invoking srt-punctuator for {srt_path.name}")
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=str(cwd),
-    )
-
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr, file=sys.stderr)
-
-    if result.returncode == 0:
-        print("[OK] srt-punctuator completed successfully")
-        return True
-    else:
-        print(f"[FAIL] opencode exited with code {result.returncode}")
-        return False
+    rc = _stream_subprocess(cmd, cwd=cwd, label=f"srt-punctuator {srt_path.name}", timeout=600)
+    return rc == 0
 
 
 def invoke_batch_translate(srt_path: Path, cwd: Path) -> bool:
@@ -103,54 +138,16 @@ def invoke_batch_translate(srt_path: Path, cwd: Path) -> bool:
         sys.executable, str(batch_script), str(srt_path),
     ]
 
-    print(f"[RUN] batch_translate.py on {srt_path.name}")
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=str(cwd),
-    )
-
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr, file=sys.stderr)
-
-    if result.returncode == 0:
-        print("[OK] batch translate completed successfully")
-        return True
-    else:
-        print(f"[FAIL] batch_translate.py exited with code {result.returncode}")
-        return False
+    rc = _stream_subprocess(cmd, cwd=cwd, label=f"batch_translate {srt_path.name}")
+    return rc == 0
 
 
 def invoke_resegment(srt_path: Path, cwd: Path) -> bool:
     resegment_script = SCRIPTS_DIR / "resegment.py"
     cmd = [sys.executable, str(resegment_script), str(srt_path)]
 
-    print(f"[RUN] resegment.py on {srt_path.name}")
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=str(cwd),
-    )
-
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr, file=sys.stderr)
-
-    if result.returncode == 0:
-        print("[OK] resegment completed successfully")
-        return True
-    else:
-        print(f"[FAIL] resegment.py exited with code {result.returncode}")
-        return False
+    rc = _stream_subprocess(cmd, cwd=cwd, label=f"resegment {srt_path.name}")
+    return rc == 0
 
 
 def main():
@@ -174,22 +171,15 @@ def main():
         print(f"[FAIL] download.ps1 not found in {SCRIPTS_DIR}")
         sys.exit(1)
 
-    print(f"[RUN] download.ps1 {url}")
     t0 = time.time()
-    result = subprocess.run(
+    rc = _stream_subprocess(
         ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", str(download_script), url],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        cwd=str(user_cwd),
+        cwd=user_cwd,
+        label=f"download.ps1 {url}"
     )
+    if rc != 0:
+        sys.exit(rc)
     t1 = time.time()
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr, file=sys.stderr)
-    if result.returncode != 0:
-        print(f"[FAIL] download.ps1 exited with code {result.returncode}")
-        sys.exit(result.returncode)
-    print(f"[TIME] download: {t1 - t0:.1f}s")
 
     # find English SRT
     new_srt = sorted(set(user_cwd.glob("*.srt")) - before_srt)
@@ -207,25 +197,21 @@ def main():
         if not invoke_srt_punctuator(srt_path, user_cwd):
             print("[ERROR] srt-punctuator failed, aborting")
             sys.exit(1)
-        t3 = time.time()
-        print(f"[TIME] punctuate: {t3 - t2:.1f}s")
     else:
-        t3 = t2
         print("[INFO] English SRT already has sufficient punctuation, skipping srt-punctuator")
+    t3 = time.time()
 
     # 3. resegment
     t4 = time.time()
     if not invoke_resegment(srt_path, user_cwd):
         print("[ERROR] resegment failed")
     t5 = time.time()
-    print(f"[TIME] resegment: {t5 - t4:.1f}s")
 
     # 4. translate
     t6 = time.time()
     if not invoke_batch_translate(srt_path, user_cwd):
         print("[ERROR] batch translate failed")
     t7 = time.time()
-    print(f"[TIME] translate: {t7 - t6:.1f}s")
 
     # 5. finalize: rename subtitles and cleanup temp files
     finalize_script = SCRIPTS_DIR / "finalize-subtitles.ps1"
@@ -235,24 +221,16 @@ def main():
         print(f"[FAIL] finalize-subtitles.ps1 not found in {SCRIPTS_DIR}")
     else:
         t8 = time.time()
-        print(f"[RUN] finalize-subtitles.ps1 {srt_path.name}")
-        finalize_result = subprocess.run(
+        rc = _stream_subprocess(
             ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", str(finalize_script),
              "-InputFile", str(srt_path),
              "-WorkspaceDir", str(workspace_dir)],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            cwd=str(user_cwd),
+            cwd=user_cwd,
+            label=f"finalize-subtitles {srt_path.name}"
         )
-        if finalize_result.stdout:
-            print(finalize_result.stdout)
-        if finalize_result.stderr:
-            print(finalize_result.stderr, file=sys.stderr)
         t9 = time.time()
-        if finalize_result.returncode != 0:
-            print(f"[WARN] finalize-subtitles.ps1 exited with code {finalize_result.returncode} (non-fatal)")
-        else:
-            print("[OK] finalize completed successfully")
-        print(f"[TIME] finalize: {t9 - t8:.1f}s")
+        if rc != 0:
+            print(f"[WARN] finalize-subtitles.ps1 exited with code {rc} (non-fatal)")
 
     print(f"[TIME] total: {t9 - t0:.1f}s")
     print("[DONE] All steps completed.")
