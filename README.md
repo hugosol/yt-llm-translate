@@ -15,9 +15,9 @@
 # Why this exists
 鉴于油管自带的字幕质量实在一言难尽，该skill将利用大语言模型优化原语言字幕文本并翻译为中文，结果以中英对照格式展示以便于学习，优化效果如图所示。
 原生字幕：
-![image](https://github.com/hugosol/yt-llm-translate/raw/master/assets/before.png)
+![image](https://github.com/user-attachments/assets/1829c81f-a235-4906-b015-87b9c836d718)
 优化后：
-![image](https://github.com/hugosol/yt-llm-translate/raw/master/assets/after.png)
+![image](https://github.com/user-attachments/assets/6da38683-ef60-41ee-889d-6588bc6e7710)
 
 ---
 ## Installation
