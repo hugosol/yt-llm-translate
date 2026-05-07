@@ -14,11 +14,11 @@
 
 # Why this exists
 
-以 Skill 形式分发，无需安装 — 复制文件夹到 opencode skills 目录即可使用。opencode 的 Web 模式支持局域网内任意设备远程触发，比传统客户端更灵活。
+- 以 Skill 形式分发，无需安装 — 复制文件夹到 opencode skills 目录即可使用。opencode 的 Web 模式支持局域网内任意设备远程触发，比传统客户端更灵活。
 
-输出本地文件（.mp4 / .srt），字幕文本便于后续交给 AI 进行知识整理，本地视频也可配合 [my-streaming](https://github.com/hugosol/my-streaming) 于局域网内使用便携设备串流播放。
+- 输出本地文件（.mp4 / .srt），字幕文本便于后续交给 AI 进行知识整理，本地视频也可配合 [my-streaming](https://github.com/hugosol/my-streaming) 于局域网内使用便携设备串流播放。
 
-处理效率：以 DeepSeek V4 Flash、4 线程处理 15 分钟视频，耗时约 2–3 分钟。LLM 自动添加标点、重新断句，提升可读性。多线程处理大文件，LLM 调度任务灵活应对异常，确保每个子任务稳定完成。
+- 处理效率：以 DeepSeek V4 Flash、4 线程处理 15 分钟视频，耗时约 2–3 分钟。LLM 自动添加标点、重新断句，提升可读性。多线程处理大文件，LLM 调度任务灵活应对异常，确保每个子任务稳定完成。
 
 原生字幕：
 ![image](https://github.com/user-attachments/assets/1829c81f-a235-4906-b015-87b9c836d718)
