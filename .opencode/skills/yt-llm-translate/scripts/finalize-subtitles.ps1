@@ -9,7 +9,7 @@ param(
 $configPath = Join-Path $PSScriptRoot "config.json"
 $debug = $false
 if (Test-Path $configPath) {
-    $config = Get-Content $configPath -Raw | ConvertFrom-Json
+    $config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $debug = $config.debug -eq $true
 }
 

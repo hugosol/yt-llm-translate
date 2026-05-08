@@ -16,7 +16,7 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 if ((-not $Proxy) -and (-not $NoProxy)) {
     $configPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "config.json"
     if (Test-Path $configPath) {
-        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        $config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($config.'yt-download-proxy') {
             $Proxy = $config.'yt-download-proxy'
         }
@@ -48,8 +48,8 @@ $dlpArgs = @(
     $Url
 )
 
-$existingSrt = @{}
-Get-ChildItem -Path $OutputDir -Filter "*.srt" -File | ForEach-Object { $existingSrt[$_.FullName] = $true }
+$existingFiles = @{}
+Get-ChildItem -Path $OutputDir -File | ForEach-Object { $existingFiles[$_.FullName] = $true }
 
 Write-Output ""
 Write-Output "--- Downloading ---"
@@ -63,7 +63,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Output ""
 Write-Output "--- Repairing SRT subtitle overlaps ---"
 
-$srtFiles = Get-ChildItem -Path $OutputDir -Filter "*.srt" -File | Where-Object { -not $existingSrt.ContainsKey($_.FullName) }
+$srtFiles = Get-ChildItem -Path $OutputDir -Filter "*.srt" -File | Where-Object { -not $existingFiles.ContainsKey($_.FullName) }
 
 if ($srtFiles.Count -eq 0) {
     Write-Output "No SRT files found to repair."
@@ -133,10 +133,48 @@ foreach ($srt in $srtFiles) {
     Remove-Item $srt.FullName
 }
 
+# ===== Sanitize phase: normalize Unicode punctuation in filenames =====
+Write-Output ""
+Write-Output "--- Sanitizing filenames ---"
+
+function Sanitize-Filename($name) {
+    $result = $name -replace [char]0x2018, "'"
+    $result = $result -replace [char]0x2019, "'"
+    $result = $result -replace [char]0x201C, '"'
+    $result = $result -replace [char]0x201D, '"'
+    $result = $result -replace [char]0x2013, '-'
+    $result = $result -replace [char]0x2014, '--'
+    $result = $result -replace [char]0x2026, '...'
+    $result = $result -replace [char]0xFF1F, '?'
+    $result = $result -replace [char]0xFF01, '!'
+    $result = $result -replace [char]0x201A, ','
+    $result = $result -replace [char]0x201E, '"'
+    $result = $result -replace [char]0x2022, '-'
+    $result = $result -replace [char]0x2027, '-'
+    $result = $result -replace [char]0x00A0, ' '
+    $result = $result -replace [char]0x29F8, '-'
+    return $result
+}
+
+$newFiles = Get-ChildItem -Path $OutputDir -File | Where-Object { -not $existingFiles.ContainsKey($_.FullName) }
+foreach ($file in $newFiles) {
+    $newName = Sanitize-Filename $file.Name
+    if ($newName -ne $file.Name) {
+        $newPath = Join-Path $OutputDir $newName
+        if (Test-Path $newPath) {
+            Write-Output "  WARNING: Cannot rename $($file.Name) -> $newName, target already exists"
+        } else {
+            Rename-Item -LiteralPath $file.FullName -NewName $newName
+            Write-Output "  Renamed: $($file.Name) -> $newName"
+        }
+    }
+}
+
 Write-Output ""
 Write-Output "========================================"
 Write-Output "  Complete! Processed files:"
 $srtFiles | ForEach-Object {
-    Write-Output "    $($_.Name -replace '-orig', '')"
+    $sanitized = Sanitize-Filename ($_.Name -replace '-orig', '')
+    Write-Output "    $sanitized"
 }
 Write-Output "========================================"
