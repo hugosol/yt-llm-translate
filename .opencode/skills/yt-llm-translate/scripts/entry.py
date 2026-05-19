@@ -3,7 +3,7 @@
 Usage:
     python entry.py <youtube_url>
 
-Pipeline: download.ps1 -> srt-punctuator -> resegment.py -> batch_translate.py
+Pipeline: download.ps1 -> [transcribe.py fallback] -> srt-punctuator -> resegment.py -> batch_translate.py
 
 All output files (MP4, SRT) go to the user's current working directory.
 """
@@ -164,6 +164,7 @@ def main():
 
     config = load_config()
     before_srt = set(user_cwd.glob("*.srt"))
+    before_mp4 = set(user_cwd.glob("*.mp4"))
 
     # 1. download
     download_script = SCRIPTS_DIR / "download.ps1"
@@ -185,9 +186,31 @@ def main():
     new_srt = sorted(set(user_cwd.glob("*.srt")) - before_srt)
     eng_srt = [p for p in new_srt if p.match("*.en.srt")]
     if not eng_srt:
-        print("[INFO] No English SRT (*.en.srt) found after download")
-        print("[DONE] All steps completed.")
-        return
+        print("[INFO] No English SRT found after download, attempting Whisper transcription...")
+        new_mp4 = sorted(set(user_cwd.glob("*.mp4")) - before_mp4)
+        if not new_mp4:
+            print("[INFO] No new MP4 found after download, nothing to transcribe")
+            print("[DONE] All steps completed.")
+            return
+        mp4_path = new_mp4[0]
+
+        whisper_timeout = config.get("whisper", {}).get("timeout", 1200)
+        transcribe_script = SCRIPTS_DIR / "transcribe.py"
+        rc = _stream_subprocess(
+            [sys.executable, str(transcribe_script), str(mp4_path)],
+            cwd=user_cwd,
+            label=f"whisper transcribe {mp4_path.name}",
+            timeout=whisper_timeout
+        )
+        if rc != 0:
+            print("[ERROR] Whisper transcription failed")
+            sys.exit(rc)
+
+        after_eng_srt = sorted(set(user_cwd.glob("*.en.srt")) - before_srt)
+        if not after_eng_srt:
+            print("[ERROR] Whisper completed but no .en.srt was produced")
+            sys.exit(1)
+        eng_srt = after_eng_srt
 
     srt_path = eng_srt[0]
 
