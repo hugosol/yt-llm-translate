@@ -3,6 +3,11 @@
   "model": "deepseek/deepseek-v4-flash",
   "yt-download-proxy": "http://127.0.0.1:10808",
   "opencode_path": "D:\\nvm4w\\nodejs\\opencode.ps1",
+  "whisper": {
+    "model": "small",
+    "language": "en",
+    "timeout": 1200
+  },
   "translation": {
     "chunk_size": "auto",
     "min_size": 30,
